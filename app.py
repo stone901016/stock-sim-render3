@@ -27,12 +27,11 @@ def simulate_generator(symbol, horizon_key, sims):
 
     # 翻譯公司產業與業務簡介
     industry_en = info.get('industry', 'N/A')
-    summary_en = info.get('longBusinessSummary', '無可用公司簡介')
+    summary_en = info.get('longBusinessSummary', '')
     translator = GoogleTranslator(source='auto', target='zh-TW')
     industry = translator.translate(industry_en) if industry_en != 'N/A' else industry_en
-    # deep-translator一次最多翻譯5000字，業務簡介可能過長，可截斷
     summary = translator.translate(summary_en[:4000]) if summary_en else '無可用公司簡介'
-    summary = summary.replace('惠丘市', '新竹市')  # 修正誤翻譯城市名稱
+    summary = summary.replace('惠丘市', '新竹市')
 
     # 歷史資料
     hist = ticker.history(period="max", auto_adjust=True)
@@ -97,58 +96,68 @@ def simulate_generator(symbol, horizon_key, sims):
     plt.close(fig)
     plot_img = base64.b64encode(buf.getvalue()).decode()
 
-    
     # 自動產生具體操作建議
     if ma20 > ma50 and macd_hist > 0 and rsi14 < 70:
-        suggestion = "趨勢偏多: 建議於股價回檔至20日均線附近分批買入，並依當前多頭動能保持持有。"
+        suggestion = "趨勢偏多：建議於股價回檔至 20 日均線附近分批買入，並依當前多頭動能持有。"
     elif ma20 > ma50 and rsi14 >= 70:
         suggestion = "雖多頭趨勢明顯，但 RSI 過熱，建議等待股價整理或回檔至均線位置再分批布局。"
     elif ma20 < ma50 and macd_hist < 0:
-        suggestion = "趨勢轉空: 建議於股價反彈至20日均線時分批賣出或觀望以控制風險。"
+        suggestion = "趨勢轉空：建議於股價反彈至 20 日均線時分批賣出或觀望以控制風險。"
     else:
         suggestion = "指標呈現混合訊號，建議先觀望並待趨勢及動能訊號更為明確後再行操作。"
 
-    commentary_html = (
-        f"<div style='font-size:1rem; line-height:1.5;'>"
-        f"<h4>公司產業與業務</h4>"
-        f"<p>該公司屬於 <strong>{industry}</strong> 產業，主要業務：{summary}</p>"
-        f"<h4>模擬走勢總結</h4>"
-        f"<ul>"
-        f"<li>預測未來股價平均約為 <strong>{avg_price:.2f} 元</strong>。</li>"
-        f"<li>目前股價：{current_price:.2f} 元；預測範圍：{min_price:.2f}-{max_price:.2f} 元。</li>"
-        f"<li>波動度：{vol:.2f} 元 ({vol_pct:.2f}%)。</li>"
-        f"</ul>"
-        f"<h4>指標解讀</h4>"
-        f"<ul>"
-        f"<li>20日MA={ma20:.2f}, 50日MA={ma50:.2f} => 趨勢偏{'多頭' if ma20>ma50 else '空頭'}。</li>"
-        f"<li>RSI(14)={rsi14:.2f} => {'過熱(>70)易回檔' if rsi14>70 else ('超賣(<30)易反彈' if rsi14<30 else '中性穩定')}</li>"
-        f"<li>MACD柱狀圖={macd_hist:.4f} => {'正值，多頭動能' if macd_hist>0 else '負值，空頭動能'}</li>"
-        f"</ul>"
-        f"<h4>建議</h4>"
-        f"<ul>"
-        f"<li>20日MA與50日MA顯示趨勢偏{"多頭" if ma20>ma50 else "空頭"}，主趨勢{ "向上" if ma20>ma50 else "向下" }。</li>"
-        f"<li>RSI(14)={rsi14:.2f}，{ "過熱" if rsi14>70 else ("超賣" if rsi14<30 else "中性") }，{ "注意可能回檔" if rsi14>70 else ("可能反彈" if rsi14<30 else "趨勢穩定") }。</li>"
-        f"<li>MACD柱狀圖={macd_hist:.4f}，{ "多頭動能" if macd_hist>0 else "空頭動能" }較強。</li>"
-        f"<li>{ "建議逢低分批買入，並於突破近期高點時加碼；如跌破下方支撐，考慮停損出場。" if ma20>ma50 and macd_hist>0 else ("建議逢高出脫，並於關鍵支撐反彈時再進場。" if ma20<ma50 and macd_hist<0 else "建議維持觀望，待指標趨勢更明確後再行操作。") }</li>"
-        f"</ul>"
-        f"</div>"
-    )
+    commentary_html = f"""
+<div style="font-size:1rem; line-height:1.5;">
+  <h4>公司產業與業務</h4>
+  <p>該公司屬於 <strong>{industry}</strong> 產業，主要業務：{summary}</p>
 
-    result = {"plot_img": f"data:image/png;base64,{plot_img}",
-              "hist_data": finals.tolist(),
-              "commentary_html": commentary_html}
+  <h4>模擬走勢總結</h4>
+  <ul>
+    <li>預測未來股價平均約為 <strong>{avg_price:.2f} 元</strong>。</li>
+    <li>目前股價：{current_price:.2f} 元；預測範圍：{min_price:.2f}–{max_price:.2f} 元。</li>
+    <li>波動度：{vol:.2f} 元 ({vol_pct:.2f}%)。</li>
+  </ul>
+
+  <h4>指標解讀</h4>
+  <ul>
+    <li>20 日 MA={ma20:.2f}, 50 日 MA={ma50:.2f} ⇒ 趨勢偏{'多頭' if ma20>ma50 else '空頭'}。</li>
+    <li>RSI(14)={rsi14:.2f} ⇒ {'過熱(>70)易回檔' if rsi14>70 else ('超賣(<30)易反彈' if rsi14<30 else '中性穩定')}</li>
+    <li>MACD 柱狀圖={macd_hist:.4f} ⇒ {'正值，多頭動能' if macd_hist>0 else '負值，空頭動能'}</li>
+  </ul>
+
+  <h4>建議</h4>
+  <ul>
+    <li>20 日 MA 與 50 日 MA 顯示趨勢偏{'多頭' if ma20>ma50 else '空頭'}，主趨勢{'向上' if ma20>ma50 else '向下'}。</li>
+    <li>RSI(14)={rsi14:.2f}，{'過熱' if rsi14>70 else ('超賣' if rsi14<30 else '中性')}，{('注意可能回檔' if rsi14>70 else '可能反彈') if rsi14<70 else '趨勢穩定'}。</li>
+    <li>MACD 柱狀圖={macd_hist:.4f}，{'多頭動能' if macd_hist>0 else '空頭動能'} 較強。</li>
+    <li>{suggestion}</li>
+  </ul>
+</div>
+"""
+
+    result = {
+        "plot_img": f"data:image/png;base64,{plot_img}",
+        "hist_data": finals.tolist(),
+        "commentary_html": commentary_html
+    }
     yield f"data: {json.dumps(result)}\n\n"
+
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
 
 @app.route("/api/stock_stream")
 def stock_stream():
     sym = request.args.get("symbol")
     hor = request.args.get("horizon")
     sims = request.args.get("simulations")
-    return Response(stream_with_context(simulate_generator(sym, hor, sims)), content_type="text/event-stream")
+    return Response(
+        stream_with_context(simulate_generator(sym, hor, sims)),
+        content_type="text/event-stream"
+    )
+
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
