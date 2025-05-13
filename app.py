@@ -21,84 +21,104 @@ HORIZON_MAP = {
 }
 
 def simulate_generator(symbol, horizon_key, sims):
-    # 取資料
     ticker = yf.Ticker(symbol)
     info = ticker.info
     hist = ticker.history(period="max", auto_adjust=True)
     if hist.empty:
-        yield 'data: 100\n\n'  # 直接結束
+        yield "data: 100\n\n"
         return
 
-    # 轉中文
+    # 翻譯
     industry_en = info.get('industry', 'N/A')
-    summary_en = info.get('longBusinessSummary', '')
-    translator = GoogleTranslator(source='auto', target='zh-TW')
-    industry = translator.translate(industry_en) if industry_en != 'N/A' else 'N/A'
-    summary = translator.translate(summary_en[:4000]) if summary_en else '無可用公司簡介'
-    summary = summary.replace('惠丘市', '新竹市')
+    sum_en = info.get('longBusinessSummary', '')
+    trans = GoogleTranslator(source='auto', target='zh-TW')
+    industry = trans.translate(industry_en) if industry_en!='N/A' else 'N/A'
+    summary = trans.translate(sum_en[:4000]) if sum_en else '無可用公司簡介'
+    summary = summary.replace('惠丘市','新竹市')
 
-    # 參數
     prices = hist['Close'].values
-    current_price = prices[-1]
-    returns = np.diff(prices) / prices[:-1]
-    mu = np.mean(returns) * 252
-    sigma = np.std(returns, ddof=1) * np.sqrt(252)
+    current = prices[-1]
+    returns = np.diff(prices)/prices[:-1]
+    mu = returns.mean()*252
+    sigma = returns.std(ddof=1)*np.sqrt(252)
+
     days = HORIZON_MAP.get(horizon_key, 252)
     dt = 1/252
     sims = int(sims)
-    chunk = max(1, sims // 100)
-    paths = []
+    chunk = max(1, sims//100)
 
-    # 模擬並回報進度
+    # 準備統計結構
+    finals_list = []
+    sum_paths = np.zeros(days+1)
+    Nplot = 2000
+    reservoir = []
+    total = 0
+
     for i in range(0, sims, chunk):
-        cnt = min(chunk, sims - i)
+        cnt = min(chunk, sims-i)
         rand = np.random.normal(size=(cnt, days))
-        inc = (mu - 0.5*sigma**2)*dt + sigma*np.sqrt(dt)*rand
-        sims_paths = current_price * np.exp(np.cumsum(inc, axis=1))
-        sims_paths = np.concatenate([np.full((cnt,1), current_price), sims_paths], axis=1)
-        paths.append(sims_paths)
-        pct = int(min((i+cnt)/sims*100, 100))
+        inc = (mu-0.5*sigma**2)*dt + sigma*np.sqrt(dt)*rand
+        paths = current * np.exp(np.cumsum(inc, axis=1))
+        paths = np.concatenate([np.full((cnt,1), current), paths], axis=1)
+
+        # 加入 finals
+        finals = paths[:,-1]
+        finals_list.extend(finals.tolist())
+
+        # 累積平均用
+        sum_paths += paths.sum(axis=0)
+
+        # Reservoir sampling
+        for row in paths:
+            if len(reservoir)<Nplot:
+                reservoir.append(row)
+            else:
+                j = np.random.randint(0, total+1)
+                if j<Nplot:
+                    reservoir[j] = row
+            total += 1
+
+        pct = int(min((i+cnt)/sims*100,100))
         yield f"data: {pct}\n\n"
 
-    all_paths = np.vstack(paths)
-    finals = all_paths[:, -1]
-    avg_price, min_price, max_price = finals.mean(), finals.min(), finals.max()
-    vol = finals.std()
-    vol_pct = vol / avg_price * 100
+    # 計算各項
+    finals_arr = np.array(finals_list)
+    avg_price, min_price, max_price = finals_arr.mean(), finals_arr.min(), finals_arr.max()
+    vol = finals_arr.std()
+    vol_pct = vol/avg_price*100
 
     # 技術指標
     delta = hist['Close'].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
-    rsi14 = 100 - 100/(1+rs.iloc[-1])
+    rs = gain.rolling(14).mean()/loss.rolling(14).mean()
+    rsi14 = 100-100/(1+rs.iloc[-1])
     ema12 = hist['Close'].ewm(span=12).mean()
     ema26 = hist['Close'].ewm(span=26).mean()
-    macd_hist = (ema12 - ema26).iloc[-1] - (ema12 - ema26).ewm(span=9).mean().iloc[-1]
-    ma20, ma50 = hist['Close'].rolling(20).mean().iloc[-1], hist['Close'].rolling(50).mean().iloc[-1]
+    macd_hist = (ema12-ema26).iloc[-1] - (ema12-ema26).ewm(span=9).mean().iloc[-1]
+    ma20 = hist['Close'].rolling(20).mean().iloc[-1]
+    ma50 = hist['Close'].rolling(50).mean().iloc[-1]
 
-    # 抽樣畫線：若模擬筆數過多，只畫最多 2000 條路徑
-    Nplot = min(all_paths.shape[0], 2000)
-    idx = np.random.choice(all_paths.shape[0], size=Nplot, replace=False)
-    sample_paths = all_paths[idx]
-
-    # 繪圖
+    # 畫圖：抽樣線 + 平均線
     x = np.arange(days+1)
+    mean_path = sum_paths / sims
+
     fig, ax = plt.subplots(figsize=(14,7))
-    ax.plot(x, sample_paths.T, lw=0.5, alpha=0.02, color='#007bff')
-    ax.plot(x, all_paths.mean(axis=0), lw=3, color='#dc3545', label='平均路徑')
+    ax.plot(x, np.vstack(reservoir).T, lw=0.5, alpha=0.02, color='#007bff')
+    ax.plot(x, mean_path, lw=3, color='#dc3545', label='平均路徑')
     ax.set_title(f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)", fontsize=20, fontweight='bold', pad=20)
     ax.set_xlabel("時間 (天)", fontsize=16)
     ax.set_ylabel("價格 (元)", fontsize=16)
     ax.grid(True, linestyle='--', alpha=0.5)
     ax.legend(fontsize=14)
+
     buf = io.BytesIO()
     fig.tight_layout()
     fig.savefig(buf, format='png', facecolor=fig.get_facecolor())
     plt.close(fig)
     plot_img = base64.b64encode(buf.getvalue()).decode()
 
-    # 交易建議文字
+    # 建議
     if ma20>ma50 and macd_hist>0 and rsi14<70:
         advice = "趨勢偏多：建議回檔至 20 日均線附近分批買入，並隨多頭動能持有。"
     elif ma20>ma50 and rsi14>=70:
@@ -108,7 +128,6 @@ def simulate_generator(symbol, horizon_key, sims):
     else:
         advice = "指標混合，建議觀望，待訊號明確再操作。"
 
-    # HTML 小結
     commentary_html = f"""
 <div style='font-size:1rem; line-height:1.6;'>
   <h4>公司產業與業務</h4>
@@ -131,9 +150,9 @@ def simulate_generator(symbol, horizon_key, sims):
 """
 
     result = {
-      "plot_img": f"data:image/png;base64,{plot_img}",
-      "hist_data": finals.tolist(),
-      "commentary_html": commentary_html
+        "plot_img": f"data:image/png;base64,{plot_img}",
+        "hist_data": finals_list,
+        "commentary_html": commentary_html
     }
     yield f"data: {json.dumps(result)}\n\n"
 
@@ -144,10 +163,10 @@ def index():
 
 @app.route("/api/stock_stream")
 def stock_stream():
-    s = request.args.get("symbol")
-    h = request.args.get("horizon")
-    m = request.args.get("simulations")
-    return Response(stream_with_context(simulate_generator(s, h, m)),
+    sym = request.args.get("symbol")
+    hor = request.args.get("horizon")
+    sim = request.args.get("simulations")
+    return Response(stream_with_context(simulate_generator(sym, hor, sim)),
                     content_type="text/event-stream")
 
 if __name__ == "__main__":
