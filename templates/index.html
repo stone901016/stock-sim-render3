@@ -3,21 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <title>股票模擬預測 & 技術分析</title>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { padding: 2rem; }
     #progressBar { height: 1rem; }
-    #plot { max-width: 100%; margin-top: 2rem; }
-    #commentary { margin-top: 2rem; font-size: 1rem; line-height: 1.5; }
+    #plotImg { max-width: 100%; margin-top: 2rem; }
+    #commentary { margin-top: 2rem; }
   </style>
 </head>
 <body>
   <h1 class="text-center mb-5">股票模擬預測 & 技術分析</h1>
+
   <div class="row g-3 align-items-center">
     <div class="col-md-3">
       <label class="form-label">股票代號</label>
-      <!-- 原始欄位都不動 -->
       <input id="symbol" class="form-control" value="2330.TW">
     </div>
     <div class="col-md-3">
@@ -55,7 +54,7 @@
     </div>
   </div>
 
-  <div id="plot" class="text-center">
+  <div id="plot">
     <img id="plotImg" src="" alt="走勢圖">
   </div>
 
@@ -65,20 +64,23 @@
     document.getElementById('startBtn').onclick = () => {
       document.getElementById('plotImg').src = '';
       document.getElementById('commentary').innerHTML = '';
+      document.getElementById('progressBar').style.width = '0%';
+
       const sym = document.getElementById('symbol').value;
       const hor = document.getElementById('horizon').value;
       const sims= document.getElementById('sims').value;
+
       const evtSrc = new EventSource(`/api/stock_stream?symbol=${sym}&horizon=${hor}&simulations=${sims}`);
 
       evtSrc.onmessage = e => {
-        // 如果只回傳一個數字，就是進度百分比
         if (!e.data.trim().startsWith('{')) {
+          // 進度條
           const pct = parseInt(e.data);
           document.getElementById('progressBar').style.width = pct + '%';
           return;
         }
+        // 完成時接收結果
         const data = JSON.parse(e.data);
-        // 完成後更新圖與文字
         document.getElementById('progressBar').style.width = '100%';
         document.getElementById('plotImg').src = data.plot_img;
         document.getElementById('commentary').innerHTML = data.commentary_html;
