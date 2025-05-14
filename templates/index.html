@@ -1,136 +1,87 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta charset="UTF-8">
   <title>股票模擬預測 & 技術分析</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
-        rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding: 2rem; }
+    #progressBar { height: 1rem; }
+    #plot { max-width: 100%; margin-top: 2rem; }
+    #commentary { margin-top: 2rem; font-size: 1rem; line-height: 1.5; }
+  </style>
 </head>
-<body class="container py-4">
-  <h1 class="mb-4 text-center">股票模擬預測 & 技術分析</h1>
-
-  <form id="simForm" class="row g-3 mb-4">
-    <div class="col-md-4">
-      <label for="symbol" class="form-label">股票代號</label>
-      <input list="symbolList" id="symbol" class="form-control"
-             placeholder="例如 AAPL, 2330.TW" required/>
-      <datalist id="symbolList">
-        <option value="AAPL"><option value="MSFT">
-        <option value="GOOGL"><option value="2330.TW">
-        <option value="0050.TW">
-      </datalist>
+<body>
+  <h1 class="text-center mb-5">股票模擬預測 & 技術分析</h1>
+  <div class="row g-3 align-items-center">
+    <div class="col-md-3">
+      <label class="form-label">股票代號</label>
+      <input id="symbol" class="form-control" value="2330.TW">
     </div>
-    <div class="col-md-4">
-      <label for="horizon" class="form-label">預測時間</label>
+    <div class="col-md-3">
+      <label class="form-label">預測時間</label>
       <select id="horizon" class="form-select">
-        <option value="1D">1 天</option><option value="1W">1 週</option>
-        <option value="1M">1 個月</option><option value="3M">3 個月</option>
-        <option value="6M">半年</option><option value="1Y">1 年</option>
-        <option value="2Y">2 年</option><option value="5Y">5 年</option>
-        <option value="10Y">10 年</option>
+        <option value="1D">1 日</option>
+        <option value="1W">1 週</option>
+        <option value="1M" selected>1 個月</option>
+        <option value="3M">3 個月</option>
+        <option value="6M">6 個月</option>
+        <option value="1Y">1 年</option>
       </select>
     </div>
-    <div class="col-md-4">
-      <label for="simulations" class="form-label">模擬次數</label>
-      <select id="simulations" class="form-select">
+    <div class="col-md-3">
+      <label class="form-label">模擬次數</label>
+      <select id="sims" class="form-select">
         <option value="1000">1,000 次</option>
-        <option value="10000">10,000 次</option>
+        <option value="5000">5,000 次</option>
+        <option value="10000" selected>10,000 次</option>
+        <option value="50000">50,000 次</option>
         <option value="100000">100,000 次</option>
       </select>
     </div>
-    <div class="col-12">
-      <div class="progress mb-2">
-        <div id="progBar" class="progress-bar" role="progressbar" style="width:0%">0%</div>
-      </div>
-      <button type="submit" class="btn btn-primary">開始分析</button>
-    </div>
-  </form>
-
-  <div id="resultSection" style="display:none">
-    <div id="plotContainer" class="mb-4 text-center"></div>
-    <canvas id="histChart" height="200" class="mb-4"></canvas>
-    <div>
-      <h5>研究員觀點</h5>
-      <div id="researchCommentary"></div>
+    <div class="col-md-3 d-grid">
+      <button id="startBtn" class="btn btn-primary">開始分析</button>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <div class="progress my-3">
+    <div id="progressBar" class="progress-bar progress-bar-striped" style="width:0%">
+      資料下載中，請稍後
+    </div>
+  </div>
+
+  <div id="plot" class="text-center">
+    <img id="plotImg" src="" alt="走勢圖不見了">
+  </div>
+
+  <div id="commentary"></div>
+
   <script>
-    let histChart, startTime;
-    document.getElementById('simForm').addEventListener('submit', e => {
-      e.preventDefault();
-      // 重置畫面
-      document.getElementById('resultSection').style.display = 'none';
-      document.getElementById('plotContainer').innerHTML = '';
-      const bar = document.getElementById('progBar');
-      bar.style.width = '0%'; bar.innerText = '0%';
-      startTime = Date.now();
-      let currentPct = 0;
-
-      const sym = encodeURIComponent(document.getElementById('symbol').value);
+    document.getElementById('startBtn').onclick = () => {
+      document.getElementById('plotImg').src = '';
+      document.getElementById('commentary').innerHTML = '';
+      const sym = document.getElementById('symbol').value;
       const hor = document.getElementById('horizon').value;
-      const sim = document.getElementById('simulations').value;
-      const es = new EventSource(`/api/stock_stream?symbol=${sym}&horizon=${hor}&simulations=${sim}`);
+      const sims= document.getElementById('sims').value;
+      const evtSrc = new EventSource(`/api/stock_stream?symbol=${sym}&horizon=${hor}&simulations=${sims}`);
 
-      es.onmessage = e => {
-        const raw = e.data.trim();
-        if (raw.startsWith('{')) {
-          // 完成
-          bar.style.width = '100%';
-          bar.innerText = '100% (完成)';
-          const d = JSON.parse(raw);
-          es.close();
-
-          // 顯示結果區
-          document.getElementById('resultSection').style.display = 'block';
-          // 嵌入走勢圖
-          const img = document.createElement('img');
-          img.src = d.plot_img;
-          img.className = 'img-fluid';
-          document.getElementById('plotContainer').appendChild(img);
-
-          // histogram
-          const finals = d.hist_data;
-          const bins = 50;
-          const min = Math.min(...finals), max = Math.max(...finals), step = (max - min) / bins;
-          const counts = Array(bins).fill(0);
-          finals.forEach(v => counts[Math.min(Math.floor((v - min)/step), bins-1)]++);
-          const labels = counts.map((_, i) =>
-            `${(min + i*step).toFixed(0)}~${(min + (i+1)*step).toFixed(0)}`
-          );
-
-          if (histChart) histChart.destroy();
-          histChart = new Chart(document.getElementById('histChart'), {
-            type: 'bar',
-            data: { labels, datasets: [{ label:'次數', data: counts }] },
-            options: {
-              scales: {
-                x: { title: { display:true, text:'價格區間' } },
-                y: { title: { display:true, text:'次數' } }
-              },
-              plugins: { legend: { display:false } }
-            }
-          });
-
-          // 研究員觀點
-          document.getElementById('researchCommentary').innerHTML = d.commentary_html;
-
-        } else {
-          // 更新進度條
-          const pct = parseInt(raw);
-          if (pct > currentPct && pct < 100) {
-            currentPct = pct;
-            const elapsed = (Date.now() - startTime) / 1000;
-            const estTotal = elapsed / (pct/100);
-            const rem = Math.max(0, estTotal - elapsed).toFixed(1);
-            bar.style.width = `${pct}%`;
-            bar.innerText = `${pct}% (剩約${rem}s)`;
-          }
+      evtSrc.onmessage = e => {
+        const data = JSON.parse(e.data);
+        // (%)
+        if (typeof data === 'number') {
+          document.getElementById('progressBar').style.width = data + '%';
+          return;
+        }
+        // 最後一筆
+        if (data.plot_img) {
+          document.getElementById('progressBar').style.width = '100%';
+          document.getElementById('plotImg').src = data.plot_img;
+          document.getElementById('commentary').innerHTML = data.commentary_html;
+          evtSrc.close();
         }
       };
-    });
+    };
   </script>
 </body>
 </html>
