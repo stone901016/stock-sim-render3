@@ -43,9 +43,9 @@ def simulate_generator(symbol, horizon_key, sims):
     sims = int(sims)
     chunk = max(1, sims // 100)
 
-    # 3. 準備儲存：前2000條路徑 + average 累加 + 最終價列表
+    # 3. 準備儲存：sample_chunks 收前2000條路徑、sum_paths 累加、finals 收所有最終價
     sample_n = min(2000, sims)
-    sample_paths = []
+    sample_chunks = []
     sum_paths = np.zeros(days+1)
     finals = []
 
@@ -58,15 +58,15 @@ def simulate_generator(symbol, horizon_key, sims):
         inc = (mu - 0.5*sigma**2)*dt + sigma*np.sqrt(dt)*rand
         paths = current_price * np.exp(np.cumsum(inc, axis=1))
         paths = np.concatenate([np.full((cnt,1),current_price), paths], axis=1)
+
+        # 累加
         sum_paths += paths.sum(axis=0)
         finals.extend(paths[:,-1].tolist())
 
-        # 收 sample
-        need = sample_n - len(sample_paths)
-        if need>0:
-            sample_paths.append(paths[:need])
-        if len(sample_paths)>0:
-            sample_paths = np.vstack(sample_paths)
+        # 收 sample 前 2000 條
+        if len(sample_chunks)*chunk < sample_n:
+            need = sample_n - len(np.vstack(sample_chunks)) if sample_chunks else sample_n
+            sample_chunks.append(paths[:need])
 
         pct = int(min((i+cnt)/sims*100,100))
         yield f"data: {pct}\n\n"
@@ -91,11 +91,12 @@ def simulate_generator(symbol, horizon_key, sims):
     ma20 = hist['Close'].rolling(20).mean().iloc[-1]
     ma50 = hist['Close'].rolling(50).mean().iloc[-1]
 
-    # 7. 繪圖：模擬走勢 & 平均線
+    # 7. 合併 sample_paths & 繪圖
+    sample_paths = np.vstack(sample_chunks) if sample_chunks else np.empty((0,days+1))
     mean_path = sum_paths / sims
     x = np.arange(days+1)
     fig,ax = plt.subplots(figsize=(14,7))
-    if len(sample_paths)>0:
+    if sample_paths.size:
         ax.plot(x, sample_paths.T, lw=0.5, alpha=0.02, color='#007bff')
     ax.plot(x, mean_path, lw=3, color='#dc3545', label='平均路徑')
     ax.set_title(f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)", fontsize=20, fontweight='bold', pad=20)
@@ -106,7 +107,6 @@ def simulate_generator(symbol, horizon_key, sims):
     plot_img = base64.b64encode(buf.getvalue()).decode()
 
     # 8. 生成建議 HTML
-    # 趨勢判斷文字
     trend_text = "多頭" if ma20>ma50 else "空頭"
     main_text = "向上" if ma20>ma50 else "向下"
     rsi_text = "過熱" if rsi14>70 else ("超賣" if rsi14<30 else "中性")
