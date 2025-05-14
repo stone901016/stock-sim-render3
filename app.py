@@ -27,7 +27,7 @@ def simulate_generator(symbol, horizon_key, sims):
 
     # 翻譯公司產業與業務簡介
     industry_en = info.get('industry', 'N/A')
-    summary_en = info.get('longBusinessSummary', '')
+    summary_en = info.get('longBusinessSummary', '無可用公司簡介')
     translator = GoogleTranslator(source='auto', target='zh-TW')
     industry = translator.translate(industry_en) if industry_en != 'N/A' else industry_en
     summary = translator.translate(summary_en[:4000]) if summary_en else '無可用公司簡介'
@@ -46,7 +46,6 @@ def simulate_generator(symbol, horizon_key, sims):
     chunk = max(1, sims // 100)
     paths = []
 
-    # 進度回報
     for i in range(0, sims, chunk):
         cnt = min(chunk, sims - i)
         rand = np.random.normal(size=(cnt, days))
@@ -54,94 +53,85 @@ def simulate_generator(symbol, horizon_key, sims):
         sims_paths = current_price * np.exp(np.cumsum(increments, axis=1))
         sims_paths = np.concatenate([np.full((cnt, 1), current_price), sims_paths], axis=1)
         paths.append(sims_paths)
-        pct = int(min((i + cnt) / sims * 100, 100))
-        yield f"data: {pct}\n\n"
+        percent = int(min((i + cnt) / sims * 100, 100))
+        yield f"data: {percent}\n\n"
 
     all_paths = np.vstack(paths)
     finals = all_paths[:, -1]
-    avg_price = finals.mean()
-    min_price = finals.min()
-    max_price = finals.max()
-    vol = finals.std()
+    avg_price = np.mean(finals)
+    min_price = np.min(finals)
+    max_price = np.max(finals)
+    vol = np.std(finals)
     vol_pct = vol / avg_price * 100
 
     # 技術指標
     delta = hist['Close'].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
     rsi14 = 100 - 100 / (1 + rs.iloc[-1])
     ema12 = hist['Close'].ewm(span=12).mean()
     ema26 = hist['Close'].ewm(span=26).mean()
-    macd_hist = (ema12 - ema26).iloc[-1] - (ema12 - ema26).ewm(span=9).mean().iloc[-1]
+    macd_val = ema12.iloc[-1] - ema26.iloc[-1]
+    signal_line = (ema12 - ema26).ewm(span=9).mean().iloc[-1]
+    macd_hist = macd_val - signal_line
     ma20 = hist['Close'].rolling(20).mean().iloc[-1]
     ma50 = hist['Close'].rolling(50).mean().iloc[-1]
 
-    # 畫走勢圖：只抽樣前 2000 條來顯示
-    sample_n = min(2000, all_paths.shape[0])
-    idx = np.random.choice(all_paths.shape[0], sample_n, replace=False)
-    sample_paths = all_paths[idx]
-
+    # 繪圖（只畫前2000條）
+    sample_paths = all_paths if all_paths.shape[0] <= 2000 else all_paths[:2000]
     x = np.arange(days + 1)
     fig, ax = plt.subplots(figsize=(14,7))
-    ax.plot(x, sample_paths.T, lw=0.5, alpha=0.03, color='#007bff')
-    ax.plot(x, sample_paths.mean(axis=0), lw=3, color='#dc3545', label='平均路徑')
-    ax.set_title(f"{symbol} 預測走勢 ({horizon_key}, {sims} 次模擬)", fontsize=20, pad=20)
+    for path in sample_paths:
+        ax.plot(x, path, lw=0.5, alpha=0.02, color='#007bff')
+    ax.plot(x, np.mean(all_paths, axis=0), lw=4, color='#dc3545', label='平均路徑')
+    ax.set_title(f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)", fontsize=20, fontweight='bold', pad=20)
     ax.set_xlabel("時間 (天)", fontsize=16)
     ax.set_ylabel("價格 (元)", fontsize=16)
-    ax.legend(fontsize=14)
     ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=14)
     buf = io.BytesIO()
     fig.tight_layout()
-    fig.savefig(buf, format='png')
+    fig.savefig(buf, format='png', facecolor=fig.get_facecolor())
     plt.close(fig)
     plot_img = base64.b64encode(buf.getvalue()).decode()
 
-    # 畫統計圖（直方圖）
-    fig2, ax2 = plt.subplots(figsize=(8,4))
-    ax2.hist(finals, bins=50, color='#28a745', alpha=0.7)
-    ax2.set_title("最終價格分布", fontsize=16)
-    ax2.set_xlabel("價格 (元)")
-    ax2.set_ylabel("次數")
-    ax2.grid(True, linestyle='--', alpha=0.5)
-    buf2 = io.BytesIO()
-    fig2.tight_layout()
-    fig2.savefig(buf2, format='png')
-    plt.close(fig2)
-    hist_img = base64.b64encode(buf2.getvalue()).decode()
-
     # 建議
-    if ma20>ma50 and macd_hist>0 and rsi14<70:
-        advice = "趨勢偏多：建議於回檔至20日均線附近分批買入，並依動能維持持有。"
-    elif ma20>ma50 and rsi14>=70:
-        advice = "多頭明顯但RSI過熱，建議等待整理或回檔再布局。"
-    elif ma20<ma50 and macd_hist<0:
-        advice = "趨勢轉空：建議於反彈至20日均線時分批賣出或觀望。"
+    if ma20 > ma50 and macd_hist > 0 and rsi14 < 70:
+        advice = "趨勢偏多：建議逢低分批買入，並依當前多頭動能保持持有。"
+    elif ma20 > ma50 and rsi14 >= 70:
+        advice = "雖多頭趨勢明顯，但 RSI 過熱，建議等待回檔至均線位置再布局。"
+    elif ma20 < ma50 and macd_hist < 0:
+        advice = "趨勢轉空：建議逢高賣出或觀望以控制風險。"
     else:
-        advice = "訊號混合，建議先觀望、待訊號明確後再操作。"
+        advice = "指標混合，建議先觀望，待訊號明確後再操作。"
 
-    commentary_html = f"""
-      <h4>公司產業與業務</h4>
-      <p>屬於 <strong>{industry}</strong> 產業，主要業務：{summary}</p>
-      <h4>模擬走勢總結</h4>
-      <ul>
-        <li>平均最終價格：{avg_price:.2f} 元 (範圍：{min_price:.2f}-{max_price:.2f})</li>
-        <li>波動度：{vol:.2f} 元 ({vol_pct:.2f}%)</li>
-      </ul>
-      <h4>技術指標解讀</h4>
-      <ul>
-        <li>20日MA={ma20:.2f}，50日MA={ma50:.2f} → 趨勢偏{'多頭' if ma20>ma50 else '空頭'}</li>
-        <li>RSI(14)={rsi14:.2f} → {'過熱易回檔' if rsi14>70 else ('超賣易反彈' if rsi14<30 else '中性穩定')}</li>
-        <li>MACD柱狀圖={macd_hist:.4f} → {'多頭動能' if macd_hist>0 else '空頭動能'}</li>
-      </ul>
-      <h4>建議</h4>
-      <p>{advice}</p>
-      <h4>最終價格分布</h4>
-      <img src="data:image/png;base64,{hist_img}" style="max-width:100%;">
-    """
+    commentary_html = (
+        f"<div style='font-size:1rem; line-height:1.5;'>"
+        f"<h4>公司產業與業務</h4>"
+        f"<p>該公司屬於 <strong>{industry}</strong>，主要業務：{summary}</p>"
+        f"<h4>模擬走勢總結</h4>"
+        f"<ul>"
+        f"<li>平均：<strong>{avg_price:.2f} 元</strong></li>"
+        f"<li>目前：{current_price:.2f} 元，範圍：{min_price:.2f}-{max_price:.2f} 元</li>"
+        f"<li>波動：{vol:.2f} 元 ({vol_pct:.2f}%)</li>"
+        f"</ul>"
+        f"<h4>指標解讀</h4>"
+        f"<ul>"
+        f"<li>MA20={ma20:.2f} vs MA50={ma50:.2f} → {'多頭' if ma20>ma50 else '空頭'}</li>"
+        f"<li>RSI14={rsi14:.2f} → {'過熱' if rsi14>70 else ('超賣' if rsi14<30 else '中性')}</li>"
+        f"<li>MACD柱狀圖={macd_hist:.2f} → {'多頭動能' if macd_hist>0 else '空頭動能'}</li>"
+        f"</ul>"
+        f"<h4>建議</h4>"
+        f"<p>{advice}</p>"
+        f"</div>"
+    )
 
     result = {
         "plot_img": f"data:image/png;base64,{plot_img}",
+        "hist_data": finals.tolist(),
         "commentary_html": commentary_html
     }
     yield f"data: {json.dumps(result)}\n\n"
@@ -159,4 +149,4 @@ def stock_stream():
                     content_type="text/event-stream")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host='0.0.0.0', port=5000)
