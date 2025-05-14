@@ -1,96 +1,95 @@
-<!doctype html>
+<!-- index.html -->
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <title>Stock 模擬預測</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>股票模擬預測 + 技術分析</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
 </head>
-<body class="p-4">
-
-  <h1 class="mb-4">Stock 模擬預測</h1>
-
+<body class="container py-4">
+  <h1 class="mb-4 text-center">股票模擬預測 & 技術分析</h1>
   <form id="simForm" class="row g-3 mb-4">
     <div class="col-md-4">
       <label for="symbol" class="form-label">股票代號</label>
-      <input list="symbols" id="symbol" class="form-control" required>
-      <datalist id="symbols">
-        <option value="AAPL"><option value="MSFT"><option value="GOOGL">
+      <input list="symbolList" id="symbol" class="form-control" placeholder="例如 AAPL, 2330.TW" required/>
+      <datalist id="symbolList">
+        <option value="AAPL"><option value="MSFT"><option value="GOOGL"><option value="2330.TW"><option value="0050.TW">
       </datalist>
     </div>
     <div class="col-md-4">
       <label for="horizon" class="form-label">預測時間</label>
       <select id="horizon" class="form-select">
-        <option>1D</option><option>1W</option><option>1M</option>
-        <option>3M</option><option>6M</option><option>1Y</option>
+        <option value="1D">1 天</option><option value="1W">1 週</option><option value="1M">1 個月</option>
+        <option value="3M">3 個月</option><option value="6M">半年</option><option value="1Y">1 年</option>
+        <option value="2Y">2 年</option><option value="5Y">5 年</option><option value="10Y">10 年</option>
       </select>
     </div>
     <div class="col-md-4">
       <label for="simulations" class="form-label">模擬次數</label>
-      <input type="number" id="simulations" class="form-control" value="10000" min="100" max="100000">
+      <select id="simulations" class="form-select">
+        <option value="1000">1,000 次</option><option value="10000">10,000 次</option><option value="100000">100,000 次</option>
+      </select>
     </div>
     <div class="col-12">
-      <button type="submit" class="btn btn-primary">開始模擬</button>
+      <div class="progress mb-2">
+        <div id="progBar" class="progress-bar" role="progressbar" style="width:0%">0%</div>
+      </div>
+      <button type="submit" class="btn btn-primary">開始分析</button>
     </div>
   </form>
 
-  <div class="progress mb-4">
-    <div id="progBar" class="progress-bar" role="progressbar" style="width: 0%;">資料下載中，請稍後…</div>
+  <div id="resultSection" style="display:none">
+    <div id="plotContainer" class="mb-4 text-center"></div>
+    <canvas id="histChart" height="200" class="mb-4"></canvas>
+    <div>
+      <h5>研究員觀點</h5>
+      <div id="researchCommentary"></div>
+    </div>
   </div>
 
-  <div id="resultSection" style="display:none;">
-    <h2>模擬結果</h2>
-    <div id="plotContainer" class="mb-4"></div>
-    <canvas id="histChart" height="100"></canvas>
-    <div id="researchCommentary" class="mt-4"></div>
-  </div>
-
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script>
     let histChart;
+    let startTime, currentPct = 0;
 
     document.getElementById('simForm').addEventListener('submit', e => {
       e.preventDefault();
+      // 隱藏結果、重設進度條
       document.getElementById('resultSection').style.display = 'none';
       document.getElementById('plotContainer').innerHTML = '';
       const bar = document.getElementById('progBar');
-      bar.style.width = '0%';
-      bar.innerText = '資料下載中，請稍後…';
+      bar.style.width = '0%'; bar.innerText = '0%';
+
+      startTime = Date.now();
+      currentPct = 0;
 
       const sym = document.getElementById('symbol').value;
       const hor = document.getElementById('horizon').value;
       const sim = document.getElementById('simulations').value;
-
       const es = new EventSource(`/api/stock_stream?symbol=${sym}&horizon=${hor}&simulations=${sim}`);
 
       es.onmessage = e => {
         const raw = e.data.trim();
-        if (/^\d+$/.test(raw)) {
-          const pct = parseInt(raw);
-          bar.style.width = `${pct}%`;
-          bar.innerText = `${pct}%`;
-        } else {
-          bar.style.width = '100%';
-          bar.innerText = '100% (完成)';
+        if (raw.startsWith('{')) {
+          // 完成，顯示結果
+          bar.style.width = '100%'; bar.innerText = '資料下載中，請稍候...';
+          const d = JSON.parse(raw);
           es.close();
           document.getElementById('resultSection').style.display = 'block';
-          const d = JSON.parse(raw);
-
-          // 走勢圖
+          // 預測走勢圖
           const img = document.createElement('img');
-          img.src = d.plot_img;
-          img.className = 'img-fluid mb-4';
+          img.src = d.plot_img; img.className = 'img-fluid';
           document.getElementById('plotContainer').appendChild(img);
-
-          // 次數分佈圖
+          // 終值分布圖
           const finals = d.hist_data;
           const bins = 50;
           const min = Math.min(...finals), max = Math.max(...finals), step = (max - min) / bins;
           const counts = Array(bins).fill(0);
-          finals.forEach(v => counts[Math.min(Math.floor((v - min) / step), bins-1)]++);
+          finals.forEach(v => counts[Math.min(Math.floor((v - min) / step), bins - 1)]++);
           const labels = counts.map((_, i) => `${(min + i*step).toFixed(0)}~${(min + (i+1)*step).toFixed(0)}`);
           if (histChart) histChart.destroy();
-          const ctx = document.getElementById('histChart').getContext('2d');
-          histChart = new Chart(ctx, {
+          histChart = new Chart(document.getElementById('histChart'), {
             type: 'bar',
             data: { labels, datasets: [{ label: '次數', data: counts }] },
             options: {
@@ -101,13 +100,19 @@
               plugins: { legend: { display: false } }
             }
           });
-
           // 研究員觀點
           document.getElementById('researchCommentary').innerHTML = d.commentary_html;
+        } else {
+          // 更新進度條，不顯示剩餘秒數
+          const pct = parseInt(raw);
+          if (pct > currentPct && pct < 100) {
+            currentPct = pct;
+            bar.style.width = `${pct}%`;
+            bar.innerText = `${pct}%`;
+          }
         }
       };
     });
   </script>
-
 </body>
 </html>
