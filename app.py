@@ -107,7 +107,7 @@ def simulate_generator(symbol, horizon_key, sims):
     ax.set_xlabel("時間 (天)", fontsize=16); ax.set_ylabel("價格 (元)", fontsize=16)
     ax.grid(True, linestyle='--', alpha=0.5); ax.legend(fontsize=14)
     buf = io.BytesIO(); fig.tight_layout()
-    fig.savefig(buf,format='png',facecolor=fig.get_facecolor())
+    fig.savefig(buf,format='png',facecolor=fig.get_facecolor(), bbox_inches='tight')
     plt.close(fig)
     plot_img = base64.b64encode(buf.getvalue()).decode()
 
