@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 from deep_translator import GoogleTranslator
 import io, base64, json
 
-# 中文字體設定
+# 中文字體設定 + 加入 DejaVu Sans 作為 fallback
 matplotlib.rcParams['font.family'] = 'sans-serif'
-matplotlib.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial Unicode MS']
+matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Microsoft JhengHei', 'Arial Unicode MS']
 matplotlib.rcParams['axes.unicode_minus'] = False
+
 
 app = Flask(__name__)
 
@@ -91,25 +92,33 @@ def simulate_generator(symbol, horizon_key, sims):
     ma20 = hist['Close'].rolling(20).mean().iloc[-1]
     ma50 = hist['Close'].rolling(50).mean().iloc[-1]
 
-    # 7. 合併 sample_paths & 繪圖
+        # 7. 合併 sample_paths & 繪圖
     sample_paths = np.vstack(sample_chunks) if sample_chunks else np.empty((0,days+1))
     mean_path = sum_paths / sims
     x = np.arange(days+1)
-
-    # *** 新增：先組標題字串 ***
-    chart_title = f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)"
-
     fig,ax = plt.subplots(figsize=(14,7))
     if sample_paths.size:
         ax.plot(x, sample_paths.T, lw=0.5, alpha=0.02, color='#007bff')
     ax.plot(x, mean_path, lw=3, color='#dc3545', label='平均路徑')
-    ax.set_title(chart_title, fontsize=20, fontweight='bold', pad=20)
-    ax.set_xlabel("時間 (天)", fontsize=16); ax.set_ylabel("價格 (元)", fontsize=16)
-    ax.grid(True, linestyle='--', alpha=0.5); ax.legend(fontsize=14)
-    buf = io.BytesIO(); fig.tight_layout()
-    fig.savefig(buf,format='png',facecolor=fig.get_facecolor())
+
+    # 這裡改成指定 fontname
+    ax.set_title(
+        f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)",
+        fontsize=20, fontweight='bold', pad=20,
+        fontname='DejaVu Sans'
+    )
+    ax.set_xlabel("時間 (天)", fontsize=16, fontname='DejaVu Sans')
+    ax.set_ylabel("價格 (元)", fontsize=16, fontname='DejaVu Sans')
+
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=14, prop={'family':'DejaVu Sans'})
+
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format='png', facecolor=fig.get_facecolor())
     plt.close(fig)
     plot_img = base64.b64encode(buf.getvalue()).decode()
+
 
     # 8. 生成建議 HTML（不變）
     trend_text = "多頭" if ma20>ma50 else "空頭"
