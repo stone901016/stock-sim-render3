@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, Response, stream_with_context
+from flask import Flask, render_template, request, Response, stream_with_context 
 import yfinance as yf
 import numpy as np
 import pandas as pd
@@ -64,8 +64,8 @@ def simulate_generator(symbol, horizon_key, sims):
         finals.extend(paths[:,-1].tolist())
 
         # 收 sample 前 2000 條
-        if len(sample_chunks)*chunk < sample_n:
-            need = sample_n - len(np.vstack(sample_chunks)) if sample_chunks else sample_n
+        if len(np.vstack(sample_chunks)) < sample_n if sample_chunks else sample_n:
+            need = sample_n - (len(np.vstack(sample_chunks)) if sample_chunks else 0)
             sample_chunks.append(paths[:need])
 
         pct = int(min((i+cnt)/sims*100,100))
@@ -95,18 +95,23 @@ def simulate_generator(symbol, horizon_key, sims):
     sample_paths = np.vstack(sample_chunks) if sample_chunks else np.empty((0,days+1))
     mean_path = sum_paths / sims
     x = np.arange(days+1)
+
+    # *** 新增：先組標題字串 ***
+    chart_title = f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)"
+
     fig,ax = plt.subplots(figsize=(14,7))
     if sample_paths.size:
         ax.plot(x, sample_paths.T, lw=0.5, alpha=0.02, color='#007bff')
     ax.plot(x, mean_path, lw=3, color='#dc3545', label='平均路徑')
-    ax.set_title(f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)", fontsize=20, fontweight='bold', pad=20)
+    ax.set_title(chart_title, fontsize=20, fontweight='bold', pad=20)
     ax.set_xlabel("時間 (天)", fontsize=16); ax.set_ylabel("價格 (元)", fontsize=16)
     ax.grid(True, linestyle='--', alpha=0.5); ax.legend(fontsize=14)
-    buf = io.BytesIO(); fig.tight_layout(); fig.savefig(buf,format='png',facecolor=fig.get_facecolor())
+    buf = io.BytesIO(); fig.tight_layout()
+    fig.savefig(buf,format='png',facecolor=fig.get_facecolor())
     plt.close(fig)
     plot_img = base64.b64encode(buf.getvalue()).decode()
 
-    # 8. 生成建議 HTML
+    # 8. 生成建議 HTML（不變）
     trend_text = "多頭" if ma20>ma50 else "空頭"
     main_text = "向上" if ma20>ma50 else "向下"
     rsi_text = "過熱" if rsi14>70 else ("超賣" if rsi14<30 else "中性")
@@ -138,8 +143,9 @@ def simulate_generator(symbol, horizon_key, sims):
     </div>
     """
 
-    # 9. 回傳最終資料
+    # 9. 回傳最終資料（多了 title）
     result = {
+        "title": chart_title,                    # ← 這一行
         "plot_img": f"data:image/png;base64,{plot_img}",
         "hist_data": finals.tolist(),
         "commentary_html": commentary_html
@@ -155,8 +161,10 @@ def stock_stream():
     sym = request.args.get("symbol")
     hor = request.args.get("horizon")
     sims = request.args.get("simulations")
-    return Response(stream_with_context(simulate_generator(sym, hor, sims)),
-                    content_type="text/event-stream")
+    return Response(
+        stream_with_context(simulate_generator(sym, hor, sims)),
+        content_type="text/event-stream"
+    )
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0',port=5000)
+    app.run(host='0.0.0.0', port=5000)
