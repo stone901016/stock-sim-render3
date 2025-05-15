@@ -13,6 +13,31 @@ matplotlib.rcParams['font.family'] = 'sans-serif'
 matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Noto Sans CJK JP', 'DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
 
+import matplotlib.font_manager as fm
+
+# 加入中文字型（請確保你將字型檔命名並放在同一資料夾下）
+font_path = './NotoSansTC-Regular.otf'
+font_prop = fm.FontProperties(fname=font_path)
+
+# 再手動指定給 matplotlib
+matplotlib.rcParams['font.family'] = font_prop.get_name()
+matplotlib.rcParams['axes.unicode_minus'] = False
+
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+
+font_path = './NotoSansTC-Regular.otf'
+font_prop = fm.FontProperties(fname=font_path)
+
+plt.figure()
+plt.plot([1, 2, 3], [1, 4, 9])
+plt.title('股價預測圖', fontproperties=font_prop)
+plt.xlabel('時間 (天)', fontproperties=font_prop)
+plt.ylabel('價格 (元)', fontproperties=font_prop)
+plt.savefig('test.png')
+
+
+
 
 app = Flask(__name__)
 
