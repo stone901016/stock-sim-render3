@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 from deep_translator import GoogleTranslator
 import io, base64, json
 
-# 中文字體設定
+# 中文字體設定（改用常見的 Linux 支援字體）
 matplotlib.rcParams['font.family'] = 'sans-serif'
-matplotlib.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial Unicode MS']
+matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Noto Sans CJK JP', 'DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
+
 
 app = Flask(__name__)
 
