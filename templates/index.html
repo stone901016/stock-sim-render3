@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>股票模擬預測 & 技術分析</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
 </head>
 <body class="container py-4">
   <h1 class="mb-4 text-center">股票模擬預測 & 技術分析</h1>
   <form id="simForm" class="row g-3 mb-4">
     <div class="col-md-4">
       <label for="symbol" class="form-label">股票代號</label>
-      <input list="symbolList" id="symbol" class="form-control" placeholder="例如 AAPL, 2330.TW" required />
+      <input list="symbolList" id="symbol" class="form-control" placeholder="例如 AAPL, 2330.TW" required/>
       <datalist id="symbolList">
         <option value="AAPL"><option value="MSFT"><option value="GOOGL">
         <option value="2330.TW"><option value="0050.TW">
@@ -48,8 +48,16 @@
   </form>
 
   <div id="resultSection" style="display:none">
+    <!-- 1. 這裡是新增的標題 -->
+    <h2 id="chart-title" class="text-center mb-3"></h2>
+
+    <!-- 原本的走勢圖容器 -->
     <div id="plotContainer" class="mb-4 text-center"></div>
+
+    <!-- 次數分布圖 -->
     <canvas id="histChart" height="200" class="mb-4"></canvas>
+
+    <!-- 研究員觀點 -->
     <div>
       <h5>研究員觀點</h5>
       <div id="researchCommentary"></div>
@@ -59,40 +67,66 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script>
     let histChart, startTime;
-    document.getElementById('simForm').addEventListener('submit', e => {
+    document.getElementById('simForm').addEventListener('submit', e=>{
       e.preventDefault();
-      document.getElementById('resultSection').style.display = 'none';
-      document.getElementById('plotContainer').innerHTML = '';
+      // 隱藏結果區、清空舊內容
+      document.getElementById('resultSection').style.display='none';
+      document.getElementById('plotContainer').innerHTML='';
+      document.getElementById('chart-title').innerText='';
+
       const bar = document.getElementById('progBar');
-      bar.style.width = '0%'; bar.innerText = '0%';
-      startTime = Date.now();
-      let currentPct = 0;
+      bar.style.width='0%'; bar.innerText='0%';
+
       const sym = document.getElementById('symbol').value;
       const hor = document.getElementById('horizon').value;
       const sim = document.getElementById('simulations').value;
+
       const es = new EventSource(`/api/stock_stream?symbol=${sym}&horizon=${hor}&simulations=${sim}`);
-      es.onmessage = e => {
+      let currentPct = 0;
+
+      es.onmessage = e=>{
         const raw = e.data.trim();
+
+        // 最終 JSON 回傳
         if (raw.startsWith('{')) {
-          bar.style.width = '100%'; bar.innerText = '完成';
+          bar.style.width='100%'; 
+          bar.innerText='完成';
           es.close();
+
           const d = JSON.parse(raw);
-          document.getElementById('resultSection').style.display = 'block';
+
+          // 顯示區塊
+          document.getElementById('resultSection').style.display='block';
+
+          // 1. 標題
+          document.getElementById('chart-title').innerText = d.title || '';
+
+          // 2. 走勢圖
           const img = document.createElement('img');
           img.src = d.plot_img;
           img.className = 'img-fluid';
           document.getElementById('plotContainer').appendChild(img);
 
+          // 3. 次數分布圖
           const finals = d.hist_data;
           const bins = 50;
-          const minv = Math.min(...finals), maxv = Math.max(...finals), step = (maxv - minv) / bins;
+          const minv = Math.min(...finals), maxv = Math.max(...finals);
+          const step = (maxv - minv) / bins;
           const counts = Array(bins).fill(0);
-          finals.forEach(v => counts[Math.min(Math.floor((v - minv) / step), bins - 1)]++);
-          const labels = counts.map((_, i) => `${(minv + i * step).toFixed(0)}~${(minv + (i + 1) * step).toFixed(0)}`);
+          finals.forEach(v=>{
+            const idx = Math.min(Math.floor((v - minv) / step), bins - 1);
+            counts[idx]++;
+          });
+          const labels = counts.map((_,i)=>
+            `${(minv + i*step).toFixed(0)}~${(minv + (i+1)*step).toFixed(0)}`
+          );
           if (histChart) histChart.destroy();
           histChart = new Chart(document.getElementById('histChart'), {
             type: 'bar',
-            data: { labels, datasets: [{ label: '次數', data: counts }] },
+            data: {
+              labels,
+              datasets: [{ label:'次數', data: counts }]
+            },
             options: {
               scales: {
                 x: { title: { display: true, text: '價格區間' } },
@@ -102,8 +136,11 @@
             }
           });
 
+          // 4. 研究員觀點
           document.getElementById('researchCommentary').innerHTML = d.commentary_html;
-        } else {
+        }
+        // 中途進度更新
+        else {
           const pct = parseInt(raw);
           if (!isNaN(pct) && pct > currentPct && pct < 100) {
             currentPct = pct;
