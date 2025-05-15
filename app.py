@@ -33,7 +33,7 @@ def simulate_generator(symbol, horizon_key, sims):
     summary = translator.translate(summary_en[:4000]) if summary_en else '無可用公司簡介'
     summary = summary.replace('惠丘市', '新竹市')
 
-    # 歷史價格
+    # 歷史資料與統計參數
     hist = ticker.history(period="max", auto_adjust=True)
     current_price = hist['Close'].iloc[-1]
     prices = hist['Close'].values
@@ -46,7 +46,7 @@ def simulate_generator(symbol, horizon_key, sims):
 
     sample_n = min(2000, sims)
     sample_chunks = []
-    sum_paths = np.zeros(days+1)
+    sum_paths = np.zeros(days + 1)
     finals = []
 
     yield f"data: 資料下載中，請稍候\n\n"
@@ -54,8 +54,8 @@ def simulate_generator(symbol, horizon_key, sims):
     for i in range(0, sims, chunk):
         cnt = min(chunk, sims - i)
         rand = np.random.normal(size=(cnt, days))
-        dt = 1/252
-        inc = (mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * rand
+        dt = 1 / 252
+        inc = (mu - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * rand
         paths = current_price * np.exp(np.cumsum(inc, axis=1))
         paths = np.concatenate([np.full((cnt, 1), current_price), paths], axis=1)
 
@@ -71,21 +71,25 @@ def simulate_generator(symbol, horizon_key, sims):
 
     # 技術指標
     delta = hist['Close'].diff()
-    gain = delta.clip(lower=0); loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(14).mean(); avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss; rsi14 = 100 - 100 / (1 + rs.iloc[-1])
-    ema12 = hist['Close'].ewm(span=12).mean(); ema26 = hist['Close'].ewm(span=26).mean()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
+    rsi14 = 100 - 100 / (1 + rs.iloc[-1])
+    ema12 = hist['Close'].ewm(span=12).mean()
+    ema26 = hist['Close'].ewm(span=26).mean()
     macd_val = ema12.iloc[-1] - ema26.iloc[-1]
     signal = (ema12 - ema26).ewm(span=9).mean().iloc[-1]
     macd_hist = macd_val - signal
     ma20 = hist['Close'].rolling(20).mean().iloc[-1]
     ma50 = hist['Close'].rolling(50).mean().iloc[-1]
 
-    # 圖表
-    sample_paths = np.vstack(sample_chunks) if sample_chunks else np.empty((0, days+1))
+    # 畫圖
+    sample_paths = np.vstack(sample_chunks) if sample_chunks else np.empty((0, days + 1))
     mean_path = sum_paths / sims
-    x = np.arange(days+1)
-    fig, ax = plt.subplots(figsize=(14,7))
+    x = np.arange(days + 1)
+    fig, ax = plt.subplots(figsize=(14, 7))
     if sample_paths.size:
         ax.plot(x, sample_paths.T, lw=0.5, alpha=0.02, color='#007bff')
     ax.plot(x, mean_path, lw=3, color='#dc3545', label='平均路徑')
@@ -100,6 +104,7 @@ def simulate_generator(symbol, horizon_key, sims):
     plt.close(fig)
     plot_img = base64.b64encode(buf.getvalue()).decode()
 
+    # 模擬結果統計
     finals = np.array(finals)
     avg_price = finals.mean()
     min_price = finals.min()
