@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, Response, stream_with_context
+from flask import Flask, render_template, request, Response, stream_with_context 
 import yfinance as yf
 import numpy as np
 import pandas as pd
@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 from deep_translator import GoogleTranslator
 import io, base64, json
 
-# 字型設定（確保支援中文）
+# 中文字體設定
 matplotlib.rcParams['font.family'] = 'sans-serif'
-matplotlib.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Microsoft JhengHei', 'SimHei', 'DejaVu Sans']
+matplotlib.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial Unicode MS']
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 app = Flask(__name__)
@@ -22,18 +22,17 @@ HORIZON_MAP = {
 }
 
 def simulate_generator(symbol, horizon_key, sims):
+    # 1. 讀取基本資料 & 翻譯
     ticker = yf.Ticker(symbol)
     info = ticker.info
-
-    # 翻譯公司資訊
     industry_en = info.get('industry', 'N/A')
     summary_en = info.get('longBusinessSummary', '')
     translator = GoogleTranslator(source='auto', target='zh-TW')
-    industry = translator.translate(industry_en) if industry_en != 'N/A' else industry_en
+    industry = translator.translate(industry_en) if industry_en!='N/A' else industry_en
     summary = translator.translate(summary_en[:4000]) if summary_en else '無可用公司簡介'
-    summary = summary.replace('惠丘市', '新竹市')
+    summary = summary.replace('惠丘市','新竹市')
 
-    # 歷史資料與統計參數
+    # 2. 歷史價格 & 模擬參數
     hist = ticker.history(period="max", auto_adjust=True)
     current_price = hist['Close'].iloc[-1]
     prices = hist['Close'].values
@@ -44,82 +43,82 @@ def simulate_generator(symbol, horizon_key, sims):
     sims = int(sims)
     chunk = max(1, sims // 100)
 
+    # 3. 準備儲存：sample_chunks 收前2000條路徑、sum_paths 累加、finals 收所有最終價
     sample_n = min(2000, sims)
     sample_chunks = []
-    sum_paths = np.zeros(days + 1)
+    sum_paths = np.zeros(days+1)
     finals = []
 
-    yield f"data: 資料下載中，請稍候\n\n"
-
+    # 4. 分批模擬並回傳進度
+    yield f"data: 資料下載中，請稍後\n\n"
     for i in range(0, sims, chunk):
         cnt = min(chunk, sims - i)
         rand = np.random.normal(size=(cnt, days))
-        dt = 1 / 252
-        inc = (mu - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * rand
+        dt = 1/252
+        inc = (mu - 0.5*sigma**2)*dt + sigma*np.sqrt(dt)*rand
         paths = current_price * np.exp(np.cumsum(inc, axis=1))
-        paths = np.concatenate([np.full((cnt, 1), current_price), paths], axis=1)
+        paths = np.concatenate([np.full((cnt,1),current_price), paths], axis=1)
 
+        # 累加
         sum_paths += paths.sum(axis=0)
-        finals.extend(paths[:, -1].tolist())
+        finals.extend(paths[:,-1].tolist())
 
-        if len(np.vstack(sample_chunks)) < sample_n:
-            need = sample_n - len(np.vstack(sample_chunks)) if sample_chunks else sample_n
+        # 收 sample 前 2000 條
+        if len(np.vstack(sample_chunks)) < sample_n if sample_chunks else sample_n:
+            need = sample_n - (len(np.vstack(sample_chunks)) if sample_chunks else 0)
             sample_chunks.append(paths[:need])
 
-        pct = int(min((i + cnt) / sims * 100, 100))
+        pct = int(min((i+cnt)/sims*100,100))
         yield f"data: {pct}\n\n"
 
-    # 技術指標
-    delta = hist['Close'].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss
-    rsi14 = 100 - 100 / (1 + rs.iloc[-1])
-    ema12 = hist['Close'].ewm(span=12).mean()
-    ema26 = hist['Close'].ewm(span=26).mean()
-    macd_val = ema12.iloc[-1] - ema26.iloc[-1]
-    signal = (ema12 - ema26).ewm(span=9).mean().iloc[-1]
-    macd_hist = macd_val - signal
-    ma20 = hist['Close'].rolling(20).mean().iloc[-1]
-    ma50 = hist['Close'].rolling(50).mean().iloc[-1]
-
-    # 畫圖
-    sample_paths = np.vstack(sample_chunks) if sample_chunks else np.empty((0, days + 1))
-    mean_path = sum_paths / sims
-    x = np.arange(days + 1)
-    fig, ax = plt.subplots(figsize=(14, 7))
-    if sample_paths.size:
-        ax.plot(x, sample_paths.T, lw=0.5, alpha=0.02, color='#007bff')
-    ax.plot(x, mean_path, lw=3, color='#dc3545', label='平均路徑')
-    ax.set_title(f"{symbol} 預測未來股價 {horizon_key} ({sims:,} 次模擬)", fontsize=20, fontweight='bold', pad=20)
-    ax.set_xlabel("時間 (天)", fontsize=16)
-    ax.set_ylabel("價格 (元)", fontsize=16)
-    ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend(fontsize=14)
-    buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format='png', facecolor=fig.get_facecolor())
-    plt.close(fig)
-    plot_img = base64.b64encode(buf.getvalue()).decode()
-
-    # 模擬結果統計
+    # 5. 統計結果
     finals = np.array(finals)
     avg_price = finals.mean()
     min_price = finals.min()
     max_price = finals.max()
     vol = finals.std()
-    vol_pct = vol / avg_price * 100
+    vol_pct = vol/avg_price*100
 
-    # 建議
-    trend_text = "多頭" if ma20 > ma50 else "空頭"
-    main_text = "向上" if ma20 > ma50 else "向下"
-    rsi_text = "過熱" if rsi14 > 70 else ("超賣" if rsi14 < 30 else "中性")
-    macd_text = "多頭動能" if macd_hist > 0 else "空頭動能"
-    if ma20 > ma50 and macd_hist > 0:
+    # 6. 技術指標
+    delta = hist['Close'].diff()
+    gain = delta.clip(lower=0); loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(14).mean(); avg_loss = loss.rolling(14).mean()
+    rs = avg_gain/avg_loss; rsi14 = 100-100/(1+rs.iloc[-1])
+    ema12 = hist['Close'].ewm(span=12).mean(); ema26 = hist['Close'].ewm(span=26).mean()
+    macd_val = ema12.iloc[-1]-ema26.iloc[-1]
+    signal = (ema12-ema26).ewm(span=9).mean().iloc[-1]
+    macd_hist = macd_val - signal
+    ma20 = hist['Close'].rolling(20).mean().iloc[-1]
+    ma50 = hist['Close'].rolling(50).mean().iloc[-1]
+
+    # 7. 合併 sample_paths & 繪圖
+    sample_paths = np.vstack(sample_chunks) if sample_chunks else np.empty((0,days+1))
+    mean_path = sum_paths / sims
+    x = np.arange(days+1)
+
+    # *** 新增：先組標題字串 ***
+    chart_title = f"{symbol} 預測未來股價 {horizon_key} ({sims} 次模擬)"
+
+    fig,ax = plt.subplots(figsize=(14,7))
+    if sample_paths.size:
+        ax.plot(x, sample_paths.T, lw=0.5, alpha=0.02, color='#007bff')
+    ax.plot(x, mean_path, lw=3, color='#dc3545', label='平均路徑')
+    ax.set_title(chart_title, fontsize=20, fontweight='bold', pad=20)
+    ax.set_xlabel("時間 (天)", fontsize=16); ax.set_ylabel("價格 (元)", fontsize=16)
+    ax.grid(True, linestyle='--', alpha=0.5); ax.legend(fontsize=14)
+    buf = io.BytesIO(); fig.tight_layout()
+    fig.savefig(buf,format='png',facecolor=fig.get_facecolor())
+    plt.close(fig)
+    plot_img = base64.b64encode(buf.getvalue()).decode()
+
+    # 8. 生成建議 HTML（不變）
+    trend_text = "多頭" if ma20>ma50 else "空頭"
+    main_text = "向上" if ma20>ma50 else "向下"
+    rsi_text = "過熱" if rsi14>70 else ("超賣" if rsi14<30 else "中性")
+    macd_text = "多頭動能" if macd_hist>0 else "空頭動能"
+    if ma20>ma50 and macd_hist>0:
         advice = "建議逢低分批買入，並於突破近期高點時加碼；如跌破下方支撐，考慮停損出場。"
-    elif ma20 < ma50 and macd_hist < 0:
+    elif ma20<ma50 and macd_hist<0:
         advice = "建議逢高出脫，並於關鍵支撐反彈時再進場。"
     else:
         advice = "建議維持觀望，待指標趨勢更明確後再行操作。"
@@ -144,7 +143,9 @@ def simulate_generator(symbol, horizon_key, sims):
     </div>
     """
 
+    # 9. 回傳最終資料（多了 title）
     result = {
+        "title": chart_title,                    # ← 這一行
         "plot_img": f"data:image/png;base64,{plot_img}",
         "hist_data": finals.tolist(),
         "commentary_html": commentary_html
@@ -160,7 +161,10 @@ def stock_stream():
     sym = request.args.get("symbol")
     hor = request.args.get("horizon")
     sims = request.args.get("simulations")
-    return Response(stream_with_context(simulate_generator(sym, hor, sims)), content_type="text/event-stream")
+    return Response(
+        stream_with_context(simulate_generator(sym, hor, sims)),
+        content_type="text/event-stream"
+    )
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
