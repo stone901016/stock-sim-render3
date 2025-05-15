@@ -48,8 +48,16 @@
   </form>
 
   <div id="resultSection" style="display:none">
+    <!-- 1. 這裡是新增的標題 -->
+    <h2 id="chart-title" class="text-center mb-3"></h2>
+
+    <!-- 原本的走勢圖容器 -->
     <div id="plotContainer" class="mb-4 text-center"></div>
+
+    <!-- 次數分布圖 -->
     <canvas id="histChart" height="200" class="mb-4"></canvas>
+
+    <!-- 研究員觀點 -->
     <div>
       <h5>研究員觀點</h5>
       <div id="researchCommentary"></div>
@@ -61,54 +69,80 @@
     let histChart, startTime;
     document.getElementById('simForm').addEventListener('submit', e=>{
       e.preventDefault();
+      // 隱藏結果區、清空舊內容
       document.getElementById('resultSection').style.display='none';
       document.getElementById('plotContainer').innerHTML='';
+      document.getElementById('chart-title').innerText='';
+
       const bar = document.getElementById('progBar');
       bar.style.width='0%'; bar.innerText='0%';
-      startTime = Date.now();
-      let currentPct = 0;
+
       const sym = document.getElementById('symbol').value;
       const hor = document.getElementById('horizon').value;
       const sim = document.getElementById('simulations').value;
+
       const es = new EventSource(`/api/stock_stream?symbol=${sym}&horizon=${hor}&simulations=${sim}`);
+      let currentPct = 0;
+
       es.onmessage = e=>{
         const raw = e.data.trim();
-        // 最後 JSON
+
+        // 最終 JSON 回傳
         if (raw.startsWith('{')) {
-          bar.style.width='100%'; bar.innerText='完成';
+          bar.style.width='100%'; 
+          bar.innerText='完成';
           es.close();
+
           const d = JSON.parse(raw);
+
+          // 顯示區塊
           document.getElementById('resultSection').style.display='block';
-          // 走勢圖
+
+          // 1. 標題
+          document.getElementById('chart-title').innerText = d.title || '';
+
+          // 2. 走勢圖
           const img = document.createElement('img');
-          img.src = d.plot_img; img.className='img-fluid';
+          img.src = d.plot_img;
+          img.className = 'img-fluid';
           document.getElementById('plotContainer').appendChild(img);
-          // 次數分布圖
+
+          // 3. 次數分布圖
           const finals = d.hist_data;
           const bins = 50;
-          const minv = Math.min(...finals), maxv = Math.max(...finals), step=(maxv-minv)/bins;
+          const minv = Math.min(...finals), maxv = Math.max(...finals);
+          const step = (maxv - minv) / bins;
           const counts = Array(bins).fill(0);
-          finals.forEach(v=> counts[Math.min(Math.floor((v-minv)/step),bins-1)]++);
-          const labels = counts.map((_,i)=>`${(minv+i*step).toFixed(0)}~${(minv+(i+1)*step).toFixed(0)}`);
+          finals.forEach(v=>{
+            const idx = Math.min(Math.floor((v - minv) / step), bins - 1);
+            counts[idx]++;
+          });
+          const labels = counts.map((_,i)=>
+            `${(minv + i*step).toFixed(0)}~${(minv + (i+1)*step).toFixed(0)}`
+          );
           if (histChart) histChart.destroy();
           histChart = new Chart(document.getElementById('histChart'), {
-            type:'bar',
-            data:{ labels, datasets:[{ label:'次數', data:counts }]},
-            options:{
-              scales:{
-                x:{ title:{ display:true, text:'價格區間' }},
-                y:{ title:{ display:true, text:'次數' }}
+            type: 'bar',
+            data: {
+              labels,
+              datasets: [{ label:'次數', data: counts }]
+            },
+            options: {
+              scales: {
+                x: { title: { display: true, text: '價格區間' } },
+                y: { title: { display: true, text: '次數' } }
               },
-              plugins:{ legend:{ display:false }}
+              plugins: { legend: { display: false } }
             }
           });
-          // 研究員觀點
+
+          // 4. 研究員觀點
           document.getElementById('researchCommentary').innerHTML = d.commentary_html;
         }
-        // 進度更新
+        // 中途進度更新
         else {
           const pct = parseInt(raw);
-          if (pct>currentPct && pct<100) {
+          if (!isNaN(pct) && pct > currentPct && pct < 100) {
             currentPct = pct;
             bar.style.width = `${pct}%`;
             bar.innerText = '資料下載中，請稍候';
